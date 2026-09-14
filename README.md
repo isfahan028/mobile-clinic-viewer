@@ -93,12 +93,16 @@ network/RTSP settings, or supplied by whoever installed it):
   together with the professor.
 - **Patient scheduling/records tie-in**: explicitly out of scope for now per
   the professor's brief — this is a camera viewer, not a booking system.
+- **Deploying `frontend/` to Vercel**: holding off until the MediaMTX relay
+  has a publicly reachable address — deploying the frontend alone now would
+  render fine but fail to connect to any camera, since `NEXT_PUBLIC_MEDIAMTX_WHEP_URL`
+  would have nothing real to point at yet.
 
 ## Open questions to confirm with the professor / sensor team
 
-- Exact RTSP URL / credentials for the NVR (or confirm it doesn't support
-  RTSP, in which case we'd need its vendor SDK instead — different from this
-  plan).
+- ~~Does the camera/NVR support RTSP?~~ **Confirmed yes** (2026-09-14) — this
+  plan holds. Still need the exact RTSP URL and credentials (ask the sensor
+  team — see "Switching to the real camera" above for the expected format).
 - Where will the doctor actually be relative to the vehicle:
   - **Same local network** (e.g. parked at a clinic/hospital campus with
     shared WiFi) — this setup works as-is on the local network.
