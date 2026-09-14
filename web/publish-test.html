@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<title>Publish Test (จำลองกล้องในรถ)</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 24px; max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.2rem; }
+  video { width: 100%; background: #000; border-radius: 8px; }
+  button { padding: 10px 18px; font-size: 1rem; margin-top: 12px; cursor: pointer; }
+  #status { margin-top: 12px; font-size: 0.9rem; color: #9ad; white-space: pre-wrap; }
+  .warn { color: #e8b04b; }
+</style>
+</head>
+<body>
+  <h1>ตัวจำลองกล้อง (Publisher) — สำหรับทดสอบเท่านั้น</h1>
+  <p class="warn">หน้านี้ใช้ webcam ของเครื่องนี้แทนกล้อง NVR จริงในรถ เพื่อทดสอบว่า pipeline
+  กล้อง → MediaMTX → เว็บหมอ ทำงานแบบ real-time ได้จริง เมื่อได้ RTSP URL จากกล้องจริงแล้ว
+  ไม่ต้องใช้หน้านี้อีก (ดู mediamtx.yml)</p>
+
+  <video id="preview" autoplay muted playsinline></video>
+  <br />
+  <button id="startBtn">เริ่ม Publish (เปิดกล้องเครื่องนี้)</button>
+  <button id="stopBtn" disabled>หยุด</button>
+  <div id="status">ยังไม่ได้เชื่อมต่อ</div>
+
+  <script>
+    const WHEP_BASE = window.location.hostname === '' || window.location.protocol === 'file:'
+      ? 'http://localhost:8889'
+      : `http://${window.location.hostname}:8889`;
+    const PATH = 'cam1';
+
+    let pc, stream;
+    const statusEl = document.getElementById('status');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const preview = document.getElementById('preview');
+
+    function log(msg) {
+      statusEl.textContent = msg;
+      console.log(msg);
+    }
+
+    function makeSyntheticStream() {
+      // No camera available (e.g. sandboxed browser) — draw an animated
+      // test pattern so the relay + playback pipeline can still be proven.
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 360;
+      const ctx = canvas.getContext('2d');
+      let angle = 0;
+      setInterval(() => {
+        angle += 0.05;
+        ctx.fillStyle = '#0a2540';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const x = canvas.width / 2 + Math.cos(angle) * 200;
+        const y = canvas.height / 2 + Math.sin(angle) * 100;
+        ctx.fillStyle = '#4bd07a';
+        ctx.beginPath();
+        ctx.arc(x, y, 30, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '20px system-ui';
+        ctx.fillText('SYNTHETIC TEST FEED — ' + new Date().toLocaleTimeString(), 16, 32);
+      }, 40);
+      return canvas.captureStream(25);
+    }
+
+    async function start() {
+      startBtn.disabled = true;
+      try {
+        try {
+          log('กำลังขอสิทธิ์กล้อง...');
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        } catch (camErr) {
+          log('เปิดกล้องไม่ได้ (' + camErr.message + ') — ใช้ภาพจำลองแทนเพื่อทดสอบระบบ');
+          stream = makeSyntheticStream();
+        }
+        preview.srcObject = stream;
+
+        pc = new RTCPeerConnection();
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await waitIceGatheringComplete(pc);
+
+        log('กำลังส่งสตรีมไปที่ MediaMTX (WHIP)...');
+        const res = await fetch(`${WHEP_BASE}/${PATH}/whip`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/sdp' },
+          body: pc.localDescription.sdp,
+        });
+        if (!res.ok) throw new Error(`WHIP POST failed: ${res.status} ${await res.text()}`);
+        const answerSdp = await res.text();
+        await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+
+        log('กำลัง publish อยู่ ✅ — เปิด viewer.html เพื่อดูสด');
+        stopBtn.disabled = false;
+      } catch (err) {
+        log('เกิดข้อผิดพลาด: ' + err.message);
+        startBtn.disabled = false;
+      }
+    }
+
+    function stop() {
+      if (pc) pc.close();
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      log('หยุดแล้ว');
+    }
+
+    function waitIceGatheringComplete(pc) {
+      if (pc.iceGatheringState === 'complete') return Promise.resolve();
+      return new Promise((resolve) => {
+        function check() {
+          if (pc.iceGatheringState === 'complete') {
+            pc.removeEventListener('icegatheringstatechange', check);
+            resolve();
+          }
+        }
+        pc.addEventListener('icegatheringstatechange', check);
+      });
+    }
+
+    startBtn.addEventListener('click', start);
+    stopBtn.addEventListener('click', stop);
+  </script>
+</body>
+</html>

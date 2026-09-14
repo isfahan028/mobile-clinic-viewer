@@ -1,0 +1,4 @@
+mediamtx_bin/
+*.log
+auto.crt
+auto.key

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<title>หน้าจอหมอ — วิดีโอสดจากรถตรวจ</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 24px; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.2rem; }
+  video { width: 100%; background: #000; border-radius: 8px; aspect-ratio: 16/9; object-fit: contain; }
+  #status { margin-top: 12px; font-size: 0.9rem; }
+  .ok { color: #4bd07a; }
+  .bad { color: #e05959; }
+  .pending { color: #9ad; }
+  button { padding: 10px 18px; font-size: 1rem; margin-top: 12px; cursor: pointer; }
+</style>
+</head>
+<body>
+  <h1>วิดีโอสดจากรถตรวจผู้ป่วยเคลื่อนที่</h1>
+  <video id="remoteVideo" autoplay playsinline></video>
+  <div id="status" class="pending">กำลังเชื่อมต่อ...</div>
+  <button id="reconnectBtn">เชื่อมต่อใหม่</button>
+
+  <script>
+    const WHEP_BASE = window.location.protocol === 'file:'
+      ? 'http://localhost:8889'
+      : `http://${window.location.hostname}:8889`;
+    const PATH = new URLSearchParams(window.location.search).get('path') || 'cam1';
+
+    let pc;
+    const video = document.getElementById('remoteVideo');
+    const statusEl = document.getElementById('status');
+
+    function setStatus(text, cls) {
+      statusEl.textContent = text;
+      statusEl.className = cls;
+    }
+
+    async function connect() {
+      if (pc) pc.close();
+      setStatus('กำลังเชื่อมต่อ...', 'pending');
+
+      pc = new RTCPeerConnection();
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+
+      pc.ontrack = (event) => {
+        if (video.srcObject !== event.streams[0]) {
+          video.srcObject = event.streams[0];
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') setStatus('เชื่อมต่อแล้ว — สดจากรถตรวจ', 'ok');
+        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+          setStatus('การเชื่อมต่อขาดหาย กด "เชื่อมต่อใหม่"', 'bad');
+        }
+      };
+
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await waitIceGatheringComplete(pc);
+
+        const res = await fetch(`${WHEP_BASE}/${PATH}/whep`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/sdp' },
+          body: pc.localDescription.sdp,
+        });
+        if (!res.ok) {
+          throw new Error(
+            res.status === 404
+              ? 'ยังไม่มีสตรีมเข้ามา (กล้อง/publisher ยังไม่ได้เชื่อมต่อ)'
+              : `WHEP POST failed: ${res.status}`
+          );
+        }
+        const answerSdp = await res.text();
+        await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+      } catch (err) {
+        setStatus('เชื่อมต่อไม่สำเร็จ: ' + err.message, 'bad');
+      }
+    }
+
+    function waitIceGatheringComplete(pc) {
+      if (pc.iceGatheringState === 'complete') return Promise.resolve();
+      return new Promise((resolve) => {
+        function check() {
+          if (pc.iceGatheringState === 'complete') {
+            pc.removeEventListener('icegatheringstatechange', check);
+            resolve();
+          }
+        }
+        pc.addEventListener('icegatheringstatechange', check);
+      });
+    }
+
+    document.getElementById('reconnectBtn').addEventListener('click', connect);
+    connect();
+  </script>
+</body>
+</html>
