@@ -2,12 +2,6 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "mediamtx",
-      "runtimeExecutable": "mediamtx_bin\\mediamtx.exe",
-      "runtimeArgs": ["mediamtx.yml"],
-      "port": 8889
-    },
-    {
       "name": "web",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "frontend"],

@@ -2,3 +2,8 @@ mediamtx_bin/
 *.log
 auto.crt
 auto.key
+
+# Never commit real platform credentials
+.env
+scripts/.env
+scripts/out/

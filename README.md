@@ -1,117 +1,74 @@
-# Mobile Clinic Viewer (prototype)
+# Mobile Clinic Viewer
 
-Web app that lets a doctor watch a real-time video feed from the camera/NVR
-inside the mobile patient-screening vehicle, without needing to be in the
-vehicle. Built to grow into multiple vehicles/cameras with doctor login.
+Web app that lets a doctor watch the real-time video feed from the camera
+inside a mobile patient-screening vehicle, without being in the vehicle.
 
 ## How it works
 
-Browsers cannot play an RTSP stream directly (RTSP is what almost all
-IP cameras and NVRs speak). So there needs to be a relay in the middle that
-speaks RTSP on one side and WebRTC (which browsers *can* play, with sub-second
-latency) on the other.
+The vehicle's MDVR/camera streams over 4G to a **CMSV6-style vehicle-video
+cloud platform** ("V-Track", JT/T 808 + 1078) that the professor's team
+already operates. That cloud handles ingest, storage, and — importantly —
+serves a ready-made live-video player page. So this app does **not** need
+any RTSP relay, MediaMTX, or a media server of its own: it is a thin,
+doctor-friendly wrapper around the platform.
 
 ```
-[Camera / NVR]  --RTSP-->  [MediaMTX relay]  --WebRTC-->  [Doctor's browser]
+[MDVR/camera in vehicle] --4G / JT-1078--> [V-Track cloud] --HTTP API + player--> [this app] --> [doctor]
 ```
 
-This repo has two parts:
+What this app adds on top of the platform:
 
-- **`mediamtx.yml` / `mediamtx_bin/`** — runs
-  [MediaMTX](https://github.com/bluenviron/mediamtx) (open source,
-  self-hosted) as that relay.
-- **`frontend/`** — a Next.js app that's the doctor-facing website: pick a
-  vehicle/camera, then watch its feed live with a fullscreen toggle
-  (`/`, `/viewer/[camId]`, and a dev-only `/test-publisher` for testing
-  without a real camera).
+- **Server-side login** — logs into the platform with one shared account
+  (credentials stay on the server, never in the browser) and reuses the
+  session token, re-logging in when it expires. See `frontend/lib/vtrack.js`.
+- **Vehicle picker** (`/`) — lists the vehicles the account can see with a
+  live online/offline indicator; only online vehicles are viewable.
+- **Viewer** (`/viewer/[id]`) — embeds the platform's live player for the
+  chosen vehicle, with a fullscreen toggle. View-only: no mic/talkback.
 
-**Why this approach:** almost every NVR/IP camera (Hikvision, Dahua, and
-most others) exposes an RTSP URL, so this doesn't depend on knowing the exact
-camera model yet. Once we get the real RTSP URL from the sensor team, we
-only change one line in `mediamtx.yml` — nothing else needs to change.
+## Running it locally
 
-**Why Next.js:** the plan is to grow this into doctor login plus a picker
-across multiple vehicles/cameras, which needs routing and (eventually)
-server-side logic — Next.js covers that without switching frameworks later.
-The camera list currently lives in `frontend/lib/cameras.js` as a hardcoded
-array; that's the one place to swap for a real API/database call once there's
-more than one vehicle.
-
-## Running it
-
-1. Download the MediaMTX Windows binary (not committed to the repo — it's a
-   ~56 MB executable) from
-   https://github.com/bluenviron/mediamtx/releases/latest (grab the
-   `windows_amd64.zip`), extract it into `mediamtx_bin/` at the project
-   root, then start the relay with our config:
-   ```powershell
-   .\mediamtx_bin\mediamtx.exe mediamtx.yml
-   ```
-   A `docker-compose.yml` is also included as an alternative for later
-   deployment on a Linux server.
-2. Start the Next.js app:
+1. Install deps and set credentials:
    ```bash
    cd frontend
    npm install
+   cp .env.example .env.local   # then fill in VTRACK_USER / VTRACK_PASS
+   ```
+   `.env.local` is gitignored — never commit real credentials.
+2. Start the dev server:
+   ```bash
    npm run dev
    ```
-3. Open two browser tabs:
-   - `http://localhost:3000/test-publisher` — click "เริ่ม Publish", allow
-     camera access. This simulates the vehicle's camera. (If no camera is
-     available — e.g. denied permission, no webcam, or a sandboxed browser —
-     it automatically falls back to a synthetic animated test pattern
-     instead, so the rest of the pipeline can still be verified.)
-   - `http://localhost:3000/viewer/cam1` (or just `http://localhost:3000/`
-     and click the vehicle) — this is the doctor's screen. It should show
-     the feed live within ~1 second, with a fullscreen button bottom-right
-     of the video.
+3. Open `http://localhost:3000/` — pick an online vehicle to watch it live.
 
-## Switching to the real camera
+## Environment variables (`frontend/.env.local`)
 
-Once we have the NVR/camera's RTSP URL (ask the sensor team — it usually
-looks like `rtsp://user:pass@192.168.x.x:554/stream1`, found in the NVR's
-network/RTSP settings, or supplied by whoever installed it):
+| var          | meaning                                   |
+| ------------ | ----------------------------------------- |
+| `VTRACK_BASE`| platform base URL (e.g. `http://103.233.193.79`) |
+| `VTRACK_USER`| account name                              |
+| `VTRACK_PASS`| account password                          |
 
-1. Open [mediamtx.yml](mediamtx.yml) and add under `paths: cam1:`:
-   ```yaml
-   source: rtsp://<user>:<password>@<nvr-ip>:554/<stream-path>
-   ```
-2. Restart `mediamtx.exe` (or `docker compose restart mediamtx`).
-3. `/test-publisher` is no longer needed — `/viewer/cam1` will now show the
-   real camera, since it pulls from the same MediaMTX path either way.
+These are read server-side only. Do **not** prefix them with `NEXT_PUBLIC_`
+or they would be exposed in the browser bundle.
 
-## Roadmap (agreed direction, not yet built)
+## Known constraints / open items
 
-- **Multiple vehicles/cameras**: add entries to `frontend/lib/cameras.js`
-  (one MediaMTX `path:` per camera in `mediamtx.yml` too). Once there are
-  more than a handful, or vehicles need to be added without a code deploy,
-  move that list into a real database instead.
-- **Doctor login**: not implemented yet — needs a decision on *who*
-  provisions accounts (IT staff/admin creates logins for doctors, vs.
-  doctors self-register) before building it, since that determines whether
-  this needs an admin panel or just an auth provider. Worth deciding
-  together with the professor.
-- **Patient scheduling/records tie-in**: explicitly out of scope for now per
-  the professor's brief — this is a camera viewer, not a booking system.
-- **Deploying `frontend/` to Vercel**: holding off until the MediaMTX relay
-  has a publicly reachable address — deploying the frontend alone now would
-  render fine but fail to connect to any camera, since `NEXT_PUBLIC_MEDIAMTX_WHEP_URL`
-  would have nothing real to point at yet.
+- **Mixed content on HTTPS deploy**: the platform's player page is served
+  over plain `http://`. If this app is deployed over `https://` (e.g.
+  Vercel), browsers will block the `http://` iframe. Needs the platform to
+  offer `https`, or a same-origin proxy, before a production HTTPS deploy.
+  Works fine over local `http://localhost`.
+- **Doctor login / who provisions accounts** — not built yet; needs a
+  decision with the professor (staff-provisioned vs. self-register).
+- **PDPA / patient consent & whether video must be recorded** — this project
+  has a real deployment plan, so these need to be confirmed with the
+  professor early, before they force a redesign.
+- **The real clinic vehicle** isn't in the demo account's vehicle list yet;
+  it will use the same flow once added to the platform.
 
-## Open questions to confirm with the professor / sensor team
+## Reference
 
-- ~~Does the camera/NVR support RTSP?~~ **Confirmed yes** (2026-09-14) — this
-  plan holds. Still need the exact RTSP URL and credentials (ask the sensor
-  team — see "Switching to the real camera" above for the expected format).
-- Where will the doctor actually be relative to the vehicle:
-  - **Same local network** (e.g. parked at a clinic/hospital campus with
-    shared WiFi) — this setup works as-is on the local network.
-  - **Remote, over the internet** (doctor elsewhere, vehicle on
-    cellular/4G-5G) — the MediaMTX relay needs to run somewhere with a public
-    address (a small cloud VPS) instead of on a laptop, and the vehicle needs
-    a stable internet connection to push its stream to it. Same software,
-    different deployment target.
-- Does the doctor need two-way audio/video (telemedicine-style call) or just
-  one-way viewing? This prototype is one-way (camera → doctor). Two-way is a
-  straightforward extension of the same WebRTC approach if needed.
-- Who is expected to log in / provision doctor accounts (see Roadmap above).
+- Platform API doc (image-only PDF): `V-Track API Document for dev.pdf`.
+  Key endpoints used: `StandardApiAction_login`, `_queryUserVehicle`,
+  `_getDeviceOlStatus`; live player at `/808gps/open/player/video.html`.
