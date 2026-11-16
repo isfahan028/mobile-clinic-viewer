@@ -7,11 +7,11 @@ import 'server-only';
 // iframe URL.
 //
 // Env:
-//   VTRACK_BASE  base URL of the platform      (default http://103.233.193.79)
+//   VTRACK_BASE  base URL of the platform (required)
 //   VTRACK_USER  account name
 //   VTRACK_PASS  account password
 
-const BASE = (process.env.VTRACK_BASE || 'http://103.233.193.79').replace(/\/+$/, '');
+const BASE = (process.env.VTRACK_BASE || '').replace(/\/+$/, '');
 const USER = process.env.VTRACK_USER;
 const PASS = process.env.VTRACK_PASS;
 
@@ -47,8 +47,8 @@ async function rawGet(action, params) {
 }
 
 async function login() {
-  if (!USER || !PASS) {
-    throw new Error('VTRACK_USER / VTRACK_PASS are not set (see frontend/.env.example)');
+  if (!BASE || !USER || !PASS) {
+    throw new Error('VTRACK_BASE / VTRACK_USER / VTRACK_PASS are not set (see frontend/.env.example)');
   }
   const json = await rawGet('login', { account: USER, password: PASS });
   if (json.result !== 0 || !json.jsession) {

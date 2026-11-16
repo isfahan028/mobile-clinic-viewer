@@ -45,7 +45,7 @@ What this app adds on top of the platform:
 
 | var          | meaning                                   |
 | ------------ | ----------------------------------------- |
-| `VTRACK_BASE`| platform base URL (e.g. `http://103.233.193.79`) |
+| `VTRACK_BASE`| platform base URL (get it from the project owner) |
 | `VTRACK_USER`| account name                              |
 | `VTRACK_PASS`| account password                          |
 
